@@ -1,5 +1,7 @@
 # serde_sqlite
 
+[![Build](https://github.com/progbits/serde_sqlite/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/progbits/serde_sqlite/actions/workflows/build.yaml)
+
 A Serde deserializer for SQLite database files.
 
 ## Getting Started

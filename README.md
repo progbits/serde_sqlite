@@ -6,6 +6,20 @@ A Serde deserializer for SQLite database files.
 
 ## Getting Started
 
+Given the following table:
+
+```sql
+CREATE TABLE test_table(
+	id INT, 
+	float_column REAL, 
+	text_column STRING, 
+	blob_column BLOB
+);
+```
+
+The table can be deserialized directly from the database file to the
+`TestTable` struct:
+
 ```rust
 use serde::Deserialize;
 use std::io::Read;

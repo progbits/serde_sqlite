@@ -9,7 +9,6 @@ use serde::{
 use std::convert::TryInto;
 
 use std::collections::{HashMap, VecDeque};
-use std::env;
 use std::marker::PhantomData;
 use std::result::Result;
 
@@ -79,8 +78,8 @@ fn decode_varint(input: &[u8]) -> (i64, usize) {
     unimplemented!()
 }
 
-#[derive(Debug)]
 /// Represents the header at the start of the first page of a SQLite database file.
+#[derive(Debug)]
 struct DatabaseFileHeader {
     header_string: String,
     page_size: u16,
@@ -315,7 +314,7 @@ impl<'de, 'a> de::Deserializer<'de> for ColumnValue {
         }
     }
 
-    fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    fn deserialize_byte_buf<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
         //visitor.visit_byte_buf(self)
         unimplemented!()
     }
@@ -336,8 +335,8 @@ impl<'de, 'a> de::Deserializer<'de> for ColumnValue {
 
     fn deserialize_unit_struct<V: Visitor<'de>>(
         self,
-        name: &'static str,
-        visitor: V,
+        _name: &'static str,
+        _visitor: V,
     ) -> Result<V::Value, Self::Error> {
         unimplemented!()
     }
@@ -346,7 +345,7 @@ impl<'de, 'a> de::Deserializer<'de> for ColumnValue {
         self,
         _name: &'static str,
         _variants: &'static [&'static str],
-        visitor: V,
+        _visitor: V,
     ) -> Result<V::Value, Self::Error> {
         unimplemented!()
     }
@@ -432,7 +431,6 @@ impl<'de> SQLiteRecord<'de> {
                     self.input[self.body_read_offset + 1],
                     self.input[self.body_read_offset + 2],
                 ];
-                println!("decoding 3B value: {:?}", bytes);
 
                 let value = i64::from_be_bytes(bytes);
                 self.body_read_offset += 3;
@@ -625,12 +623,10 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
     pub fn from_bytes(input: &'de [u8]) -> Self {
         // Read the database file header.
         let header = DatabaseFileHeader::from_bytes(&input);
-        //println("{:?}", header);
 
         // Extract the leaf pages for each table in the database. Maybe move this into `do_setup()`
         // so that construction is completely lazy.
         let table_leaf_page_map = Self::build_leaf_table_page_map(&input);
-        // println!("table_leaf_page_map: {:?}", table_leaf_page_map);
 
         SQLiteDeserializer {
             input,
@@ -683,7 +679,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
             self.database_file_header.page_size as u64 * (self.current_page_index - 1);
         let page_header = PageHeader::from_bytes(&self.input[page_offset as usize..]);
         self.leaf_records_remaining = page_header.number_of_cells;
-        // println!("next_page() decode page header: {:?}", page_header);
 
         // Set the offset to the first cell pointer, this is the cell we will start deserializing
         // records from.
@@ -699,22 +694,18 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
     ///
     /// * `input` - Byte slice pointing to the first byte of the database file.
     fn build_leaf_table_page_map(input: &'de [u8]) -> HashMap<String, Vec<i64>> {
-        //println("SQLiteDeserializer::build_leaf_table_page_map(...)");
-
         // Decode the file header.
         let file_header = DatabaseFileHeader::from_bytes(&input);
 
         // Decode the page header. The first page header follows a 100B file header.
         let page_header_offset = 100_usize;
         let page_header = PageHeader::from_bytes(&input[page_header_offset..]);
-        // println!("{:?}", page_header);
 
         // Following the page header is the offset (in bytes) to the first cell pointer.
         let cell_pointer_offset = match page_header.page_type {
             PageType::LeafTable => 108, // 100B file header + 8B page header.
             _ => panic!("first page should always be PageType::LeafTable"),
         };
-        //println("first_cell_pointer_offset: {:?}", cell_pointer_offset);
 
         // For each table present in the master table, add an entry to `map`. The payload of
         // each cell of the master table should be a record collection in the form of the
@@ -737,31 +728,25 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
             let cell_data_offset = (&input[cell_pointer_offset..])
                 .read_u16::<BigEndian>()
                 .unwrap();
-            //println("cell_data_offset: {}", cell_data_offset);
 
             // Read the cell header.
-            //println("Reading payload from offset: {}", cell_data_offset);
             let cell_header = match page_header.page_type {
                 PageType::LeafTable => {
                     TableLeafCellHeader::from_bytes(&input[cell_data_offset as usize..])
                 }
                 _ => panic!("unsupported page type"), // Currently only deal with leaf cells.
             };
-            // //println("Decoding cell with header: {:?}", cell_header);
 
-            let (payload, bytes_read) =
-                SQLiteDeserializer::<T>::decode_payload(&cell_header.payload);
+            let (payload, _) = SQLiteDeserializer::<T>::decode_payload(&cell_header.payload);
 
             // Extract the table name and root page for the table from the schema.
             if payload.len() != 5 {
-                //println("Expected payload to be master table.");
                 std::process::exit(1);
             }
 
             let table_name = match &payload[1] {
                 ColumnValue::Text(value) => value.clone(),
                 _ => {
-                    //println("Expected payload to be table name.");
                     std::process::exit(1);
                 }
             };
@@ -769,7 +754,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
             let root_page = match &payload[3] {
                 ColumnValue::Integer(value) => *value,
                 _ => {
-                    //println("Expected payload to be table name.");
                     std::process::exit(1);
                 }
             };
@@ -781,17 +765,14 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
         // mapping between each table in the database and the corresponding data containing leaf
         // tables. For small tables, the root table might be the leaf table. For larger tables, we
         // will have to traverse the B-Tree and extract the root page indices.
-        //println("=== building leaf page map === ");
         let mut table_leaf_page_map = HashMap::new();
         for (table, root_page) in table_root_page_map.iter() {
             // Read the header of the root page for the current table.
             let root_page_offset = ((root_page - 1) * file_header.page_size as i64) as usize;
             let page_header = PageHeader::from_bytes(&input[root_page_offset..]);
-            // println!("table root page header: {:?}", page_header);
             match page_header.page_type {
                 PageType::InteriorTable => {
                     // Debug logging.
-                    // println!("root page is an interior page");
 
                     // Traverse the B-Tree and extract data containing leaf pages.
                     let mut leaf_pages = Vec::new();
@@ -802,7 +783,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
                         &input,
                     );
 
-                    // println!("!!! leaf_pages: {:?} !!!", leaf_pages);
                     table_leaf_page_map.insert(table.clone(), leaf_pages);
                 }
                 PageType::LeafTable => {
@@ -823,10 +803,8 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
         leaf_pages: &mut Vec<i64>,
         input: &[u8],
     ) {
-        // println!("extract_leaf_pages({:?}, {:?}, ...)", page_number, leaf_pages);
         let page_offset = (page_number - 1) as usize * page_size;
         let page_header = PageHeader::from_bytes(&input[page_offset..]);
-        // println!("page_header: {:?}", page_header);
         match page_header.page_type {
             PageType::InteriorTable => {
                 for cell_index in 0..page_header.number_of_cells {
@@ -835,15 +813,10 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
                         .read_u16::<BigEndian>()
                         .unwrap() as usize
                         + page_offset;
-                    // println!("cell_data_offset: {}", cell_data_offset);
 
                     // Read the cell header and calculate the offset to the pointed page.
-                    let (cell_header, size) =
+                    let (cell_header, _) =
                         TableInteriorCellHeader::from_bytes(&input[cell_data_offset as usize..]);
-                    // println!("cell header: {:?}", cell_header);
-
-                    // TODO: Don't hardcode page size.
-                    // let pointed_page_offset = (cell_header.page_number_pointer * 4096) as usize;
 
                     SQLiteDeserializer::<T>::extract_leaf_pages(
                         page_size,
@@ -882,9 +855,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
         let (record_header_bytes, bytes_read) = decode_varint(&input[read_offset..]);
         read_offset += bytes_read as usize;
 
-        //println("record header bytes: {}", record_header_bytes);
-        //println("bytes_read: {}", bytes_read);
-
         // Decode the payload for the cell.
         let mut column_types = Vec::new();
         let mut record_header_bytes_remaining = record_header_bytes - bytes_read as i64;
@@ -896,11 +866,8 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
             column_types.push(type_id);
             read_offset += bytes_read;
 
-            //println("type: {}, bytes: {}", type_id, bytes_read);
-
             record_header_bytes_remaining -= bytes_read as i64;
         }
-        //println("Column types: {:?}", column_types);
 
         // Decode each of the records.
         let mut records = Vec::new();
@@ -1022,7 +989,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
                     }
                 }
             }
-            // //println("Decoded record: {:?}", records.last().unwrap());
         }
 
         // Return the number of bytes read to de-code the record.
@@ -1054,7 +1020,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// `Deserializer::deserialize_any` means your data type will be able to
     /// deserialize from self-describing formats only, ruling out Bincode and
     /// many others.
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1062,7 +1028,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `bool` value.
-    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1070,7 +1036,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting an `i8` value.
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1078,7 +1044,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting an `i16` value.
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1086,7 +1052,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting an `i32` value.
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1094,7 +1060,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting an `i64` value.
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1102,7 +1068,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `u8` value.
-    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1110,7 +1076,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `u16` value.
-    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1118,7 +1084,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `u32` value.
-    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1126,7 +1092,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `u64` value.
-    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1134,7 +1100,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `f32` value.
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1142,7 +1108,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `f64` value.
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1150,7 +1116,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a `char` value.
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1164,7 +1130,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// If the `Visitor` would benefit from taking ownership of `String` data,
     /// indiciate this to the `Deserializer` by using `deserialize_string`
     /// instead.
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1178,7 +1144,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// If the `Visitor` would not benefit from taking ownership of `String`
     /// data, indicate that to the `Deserializer` by using `deserialize_str`
     /// instead.
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_string<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1192,7 +1158,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// If the `Visitor` would benefit from taking ownership of `Vec<u8>` data,
     /// indicate this to the `Deserializer` by using `deserialize_byte_buf`
     /// instead.
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1206,7 +1172,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// If the `Visitor` would not benefit from taking ownership of `Vec<u8>`
     /// data, indicate that to the `Deserializer` by using `deserialize_bytes`
     /// instead.
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1218,7 +1184,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// This allows deserializers that encode an optional value as a nullable
     /// value to convert the null value into `None` and a regular value into
     /// `Some(value)`.
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1226,7 +1192,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a unit value.
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1237,8 +1203,8 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// particular name.
     fn deserialize_unit_struct<V>(
         self,
-        name: &'static str,
-        visitor: V,
+        _name: &'static str,
+        _visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -1250,8 +1216,8 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// particular name.
     fn deserialize_newtype_struct<V>(
         self,
-        name: &'static str,
-        visitor: V,
+        _name: &'static str,
+        _visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -1260,7 +1226,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a sequence of values.
-    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1269,7 +1235,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
 
     /// Hint that the `Deserialize` type is expecting a sequence of values and
     /// knows how many values there are without looking at the serialized data.
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1280,9 +1246,9 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// particular name and number of fields.
     fn deserialize_tuple_struct<V>(
         self,
-        name: &'static str,
-        len: usize,
-        visitor: V,
+        _name: &'static str,
+        _len: usize,
+        _visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -1291,7 +1257,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     }
 
     /// Hint that the `Deserialize` type is expecting a map of key-value pairs.
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1303,7 +1269,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     fn deserialize_struct<V>(
         self,
         name: &'static str,
-        fields: &'static [&'static str],
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -1313,12 +1279,8 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
         // when we find out the name of the table being deserialized. It is at this point we setup
         // Self to decode records from this table. This setup doesn't need to happen on subsequent
         // calls to next.
-        //println("deserialize_struct(..., {}, {:?}, ...)", name, fields);
-        //println("self.leaf_records_remaining: {}", self.leaf_records_remaining);
-        //println("self.page_cell_pointer_offset: {}", self.page_cell_pointer_offset);
         if !self.is_setup {
             // After setup, we are immediately ready to start decoding records.
-            //println("not setup - doing setup");
             self.do_setup(name);
         }
 
@@ -1327,9 +1289,8 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
             self.input[self.page_cell_pointer_offset],
             self.input[self.page_cell_pointer_offset + 1],
         ]);
-        //println("offset_to_cell_data: {}", offset_to_cell_data);
 
-        // decrement the count fo records remaining in this page and advance
+        // Decrement the count fo records remaining in this page and advance
         // the cell pointer offset 2B to the next cell pointer, ready to
         // deserialize the next record.
         self.leaf_records_remaining -= 1;
@@ -1339,14 +1300,12 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
         let page_offset =
             (self.current_page_index - 1) * self.database_file_header.page_size as u64;
         let mut read_offset = (page_offset + offset_to_cell_data as u64) as usize;
-        let (content_size, bytes_read) = decode_varint(&self.input[read_offset..]);
+        let (_, bytes_read) = decode_varint(&self.input[read_offset..]);
         read_offset += bytes_read;
-        //println("content_size: {}", content_size);
 
         // Decode the row id.
-        let (row_id, bytes_read) = decode_varint(&self.input[read_offset..]);
+        let (_, bytes_read) = decode_varint(&self.input[read_offset..]);
         read_offset += bytes_read;
-        //println("row_id: {}", row_id);
 
         // Return a new sequential visitor to decode the payload contents.
         let record_seq_access = SQLiteRecord::new(&self.input[read_offset..]);
@@ -1357,9 +1316,9 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// particular name and possible variants.
     fn deserialize_enum<V>(
         self,
-        name: &'static str,
-        variants: &'static [&'static str],
-        visitor: V,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        _visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
@@ -1369,7 +1328,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
 
     /// Hint that the `Deserialize` type is expecting the name of a struct
     /// field or the discriminant of an enum variant.
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
@@ -1380,7 +1339,7 @@ impl<'de, 'a, T> de::Deserializer<'de> for &'a mut SQLiteDeserializer<'de, T> {
     /// doesn't matter because it is ignored.
     ///
     /// Deserializers for non-self-describing formats may not support this mode.
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {

@@ -1,16 +1,15 @@
-use crate::error::Error;
-
 use byteorder::{BigEndian, ReadBytesExt};
 use serde::Deserialize;
 use serde::{
     de::{self, DeserializeSeed, IntoDeserializer, SeqAccess, Visitor},
     forward_to_deserialize_any,
 };
-use std::convert::TryInto;
-
 use std::collections::{HashMap, VecDeque};
+use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::result::Result;
+
+use crate::error::Error;
 
 /// Decode a single variable length integer.
 /// TODO: 7 and 8 byte variants.
@@ -230,10 +229,6 @@ struct PageHeader {
 
 impl PageHeader {
     /// Construct a new PageHeader from a byte slice.
-    ///
-    /// # Arguments
-    ///
-    /// * `bytes` - Slice pointing to the first byte of the page header.
     fn from_bytes(input: &[u8]) -> Self {
         let page_type = match input[0] {
             0x02 => PageType::InteriorIndex,
@@ -370,10 +365,6 @@ pub struct SQLiteRecord<'de> {
 
 impl<'de> SQLiteRecord<'de> {
     /// Create a new SQLiteRecordSeqAccess instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Byte slice pointing to the first byte of the record format payload header.
     fn new(input: &'de [u8]) -> SQLiteRecord<'de> {
         // Read the size of the header to determine the offset to the payload.
         let (record_header_size_bytes, bytes_read) = decode_varint(&input);
@@ -578,13 +569,6 @@ where
     ///
     /// Returns [`None`] when iteration is finished. Once iteration has finished, the iterator
     /// cannot be resumed.
-    ///
-    /// # Examples
-    ///
-    /// Basic usage:
-    ///
-    /// ```
-    /// ```
     fn next(&mut self) -> Option<Self::Item> {
         // Because `SQLiteDeserializer::from_bytes(...)` lazily constructs a new
         // instance, the first time `SQLiteDeserializer::next(...)` is called
@@ -616,10 +600,6 @@ where
 
 impl<'de, T> SQLiteDeserializer<'de, T> {
     /// Create a new SQLiteDeserializer from a byte slice.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Byte slice pointing to the first byte of the SQLite database file.
     pub fn from_bytes(input: &'de [u8]) -> Self {
         // Read the database file header.
         let header = DatabaseFileHeader::from_bytes(&input);
@@ -689,10 +669,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
     }
 
     /// Build a map of leaf pages for each table in the database.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Byte slice pointing to the first byte of the database file.
     fn build_leaf_table_page_map(input: &'de [u8]) -> HashMap<String, Vec<i64>> {
         // Decode the file header.
         let file_header = DatabaseFileHeader::from_bytes(&input);
@@ -772,8 +748,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
             let page_header = PageHeader::from_bytes(&input[root_page_offset..]);
             match page_header.page_type {
                 PageType::InteriorTable => {
-                    // Debug logging.
-
                     // Traverse the B-Tree and extract data containing leaf pages.
                     let mut leaf_pages = Vec::new();
                     SQLiteDeserializer::<T>::extract_leaf_pages(
@@ -796,7 +770,7 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
         table_leaf_page_map
     }
 
-    /// Recursivly traverse a B-Tree and extract leaf page.s
+    /// Recursivly traverse a B-Tree and extract leaf pages.
     fn extract_leaf_pages(
         page_size: usize,
         page_number: i64,
@@ -843,10 +817,6 @@ impl<'de, T> SQLiteDeserializer<'de, T> {
     }
 
     /// Decode the payload of a table leaf cell.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Byte slice pointing to the first byte of the payload
     fn decode_payload(input: &[u8]) -> (Vec<ColumnValue>, usize) {
         // Track the offset into `input` as we decode the payload.
         let mut read_offset = 0;
